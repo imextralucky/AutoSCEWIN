@@ -8,6 +8,8 @@ Parses `input.txt`, must be formatted as the following:
 
 `Setup Question - Option`
 
+Option can be either numerical value or text
+
 Place `AutoSCEWIN.exe` in the same directory as `input.txt` and `nvram.txt`
 
 Supports modifying the following:
