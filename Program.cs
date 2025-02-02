@@ -6,6 +6,7 @@ class NvramModifier
     {
         public string? Value { get; set; }
         public string? Option { get; set; }
+        public bool IsOptionIndex { get; set; }
     }
 
     private static Dictionary<string, InputData> ParseInputFile(string inputPath)
@@ -23,14 +24,29 @@ class NvramModifier
             {
                 string question = parts[0].Trim();
                 string data = parts[1].Trim();
-                
+
                 if (int.TryParse(data, out _))
                 {
-                    updates[question] = new InputData { Value = data };
+                    if (data.Length == 2)
+                    {
+                        updates[question] = new InputData
+                        {
+                            Option = data,
+                            IsOptionIndex = true
+                        };
+                    }
+                    else
+                    {
+                        updates[question] = new InputData { Value = data };
+                    }
                 }
                 else
                 {
-                    updates[question] = new InputData { Option = data };
+                    updates[question] = new InputData
+                    {
+                        Option = data,
+                        IsOptionIndex = false
+                    };
                 }
             }
         }
@@ -52,7 +68,7 @@ class NvramModifier
         for (int i = 0; i < nvramLines.Length; i++)
         {
             string line = nvramLines[i];
-            
+
             if (line.StartsWith("Setup Question"))
             {
                 var match = Regex.Match(line, @"Setup Question\s*=\s*(.+)");
@@ -76,8 +92,8 @@ class NvramModifier
 
                                 if (currentLine.Trim().StartsWith("Value"))
                                 {
-                                    string updatedLine = Regex.Replace(currentLine, 
-                                        @"(Value\s*=\s*)(<)?(\d+)(>)?", 
+                                    string updatedLine = Regex.Replace(currentLine,
+                                        @"(Value\s*=\s*)(<)?(\d+)(>)?",
                                         m => {
                                             string prefix = m.Groups[2].Success ? "<" : "";
                                             string suffix = m.Groups[4].Success ? ">" : "";
@@ -108,21 +124,55 @@ class NvramModifier
                             }
                             i++;
 
+                            string optionsLine = nvramLines[i];
+                            i++;
+
                             var optionsSection = new List<string>();
+                            optionsSection.Add(optionsLine.Replace("*", "").TrimEnd());
+
                             while (i < nvramLines.Length && !string.IsNullOrWhiteSpace(nvramLines[i]))
                             {
                                 if (!nvramLines[i].StartsWith("//"))
                                 {
-                                    optionsSection.Add(nvramLines[i].Replace("*", ""));
+                                    optionsSection.Add(nvramLines[i].Replace("*", "").TrimEnd());
                                 }
                                 i++;
                             }
 
+                            bool firstLine = true;
                             foreach (string optionLine in optionsSection)
                             {
-                                string pattern = @"(\[\d+\]\s*" + Regex.Escape(updateData.Option) + @")";
-                                string newLine = Regex.Replace(optionLine, pattern, "*$1");
-                                lines.Add(newLine);
+                                bool isMatch = false;
+                                if (updateData.IsOptionIndex)
+                                {
+                                    isMatch = Regex.IsMatch(optionLine, @"\[" + Regex.Escape(updateData.Option) + @"\]");
+                                }
+                                else
+                                {
+                                    isMatch = Regex.IsMatch(optionLine, @"\[\d+\]\s*" + Regex.Escape(updateData.Option));
+                                }
+
+                                if (firstLine)
+                                {
+                                    var equalsMatch = Regex.Match(optionLine, @"(Options\s*=\s*)(.*)");
+                                    if (equalsMatch.Success)
+                                    {
+                                        string prefix = equalsMatch.Groups[1].Value;
+                                        string remainder = equalsMatch.Groups[2].Value;
+                                        lines.Add($"{prefix}{(isMatch ? "*" : "")}{remainder}");
+                                    }
+                                    else
+                                    {
+                                        lines.Add(optionLine);
+                                    }
+                                    firstLine = false;
+                                }
+                                else
+                                {
+                                    string indent = Regex.Match(optionLine, @"^\s*").Value;
+                                    string content = optionLine.TrimStart();
+                                    lines.Add($"{indent}{(isMatch ? "*" : "")}{content}");
+                                }
                             }
                             i--;
                         }
@@ -144,7 +194,7 @@ class NvramModifier
         string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
         string inputPath = Path.Combine(baseDirectory, "input.txt");
         string nvramPath = Path.Combine(baseDirectory, "nvram.txt");
-        
+
         ModifyNvram(inputPath, nvramPath);
     }
 }
