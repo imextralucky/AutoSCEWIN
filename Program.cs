@@ -9,9 +9,10 @@ class NvramModifier
         public bool IsOptionIndex { get; set; }
     }
 
-    private static Dictionary<string, InputData> ParseInputFile(string inputPath)
+    private static Dictionary<string, List<InputData>> ParseInputFile(string inputPath)
     {
-        var updates = new Dictionary<string, InputData>();
+        var updates = new Dictionary<string, List<InputData>>();
+
         foreach (var line in File.ReadAllLines(inputPath))
         {
             string[]? parts = null;
@@ -25,29 +26,26 @@ class NvramModifier
                 string question = parts[0].Trim();
                 string data = parts[1].Trim();
 
+                var inputData = new InputData();
+
                 if (int.TryParse(data, out _))
                 {
                     if (data.Length == 2)
-                    {
-                        updates[question] = new InputData
-                        {
-                            Option = data,
-                            IsOptionIndex = true
-                        };
-                    }
+                        inputData.Option = data;
                     else
-                    {
-                        updates[question] = new InputData { Value = data };
-                    }
+                        inputData.Value = data;
                 }
                 else
                 {
-                    updates[question] = new InputData
-                    {
-                        Option = data,
-                        IsOptionIndex = false
-                    };
+                    inputData.Option = data;
                 }
+
+                inputData.IsOptionIndex = int.TryParse(data, out _);
+
+                if (!updates.ContainsKey(question))
+                    updates[question] = new List<InputData>();
+
+                updates[question].Add(inputData);
             }
         }
         return updates;
@@ -79,102 +77,102 @@ class NvramModifier
 
                     if (updates.ContainsKey(setupQuestion))
                     {
-                        var updateData = updates[setupQuestion];
+                        var questionUpdates = new Queue<InputData>(updates[setupQuestion]);
 
-                        if (updateData.Value != null)
+                        while (questionUpdates.Count > 0)
                         {
-                            bool emptyLineAdded = false;
+                            var updateData = questionUpdates.Dequeue();
+                            int originalIndex = i;
 
-                            while (i + 1 < nvramLines.Length && !nvramLines[i + 1].StartsWith("Setup Question"))
+                            if (updateData.Value != null)
                             {
-                                i++;
-                                string currentLine = nvramLines[i];
-
-                                if (currentLine.Trim().StartsWith("Value"))
+                                while (i + 1 < nvramLines.Length && !nvramLines[i + 1].StartsWith("Setup Question"))
                                 {
-                                    string updatedLine = Regex.Replace(currentLine,
-                                        @"(Value\s*=\s*)(<)?(\d+)(>)?",
-                                        m => {
-                                            string prefix = m.Groups[2].Success ? "<" : "";
-                                            string suffix = m.Groups[4].Success ? ">" : "";
-                                            return $"{m.Groups[1].Value}{prefix}{updateData.Value}{suffix}";
-                                        });
+                                    i++;
+                                    string currentLine = nvramLines[i];
 
-                                    lines.Add(updatedLine);
-                                }
-                                else if (!string.IsNullOrWhiteSpace(currentLine))
-                                {
-                                    lines.Add(currentLine);
-                                    emptyLineAdded = false;
-                                }
-                                else if (!emptyLineAdded)
-                                {
-                                    lines.Add("");
-                                    emptyLineAdded = true;
-                                }
-                            }
-                        }
-
-                        if (updateData.Option != null)
-                        {
-                            while (i + 1 < nvramLines.Length && !nvramLines[i + 1].StartsWith("Options"))
-                            {
-                                i++;
-                                lines.Add(nvramLines[i]);
-                            }
-                            i++;
-
-                            string optionsLine = nvramLines[i];
-                            i++;
-
-                            var optionsSection = new List<string>();
-                            optionsSection.Add(optionsLine.Replace("*", "").TrimEnd());
-
-                            while (i < nvramLines.Length && !string.IsNullOrWhiteSpace(nvramLines[i]))
-                            {
-                                if (!nvramLines[i].StartsWith("//"))
-                                {
-                                    optionsSection.Add(nvramLines[i].Replace("*", "").TrimEnd());
-                                }
-                                i++;
-                            }
-
-                            bool firstLine = true;
-                            foreach (string optionLine in optionsSection)
-                            {
-                                bool isMatch = false;
-                                if (updateData.IsOptionIndex)
-                                {
-                                    isMatch = Regex.IsMatch(optionLine, @"\[" + Regex.Escape(updateData.Option) + @"\]");
-                                }
-                                else
-                                {
-                                    isMatch = Regex.IsMatch(optionLine, @"\[\d+\]\s*" + Regex.Escape(updateData.Option));
-                                }
-
-                                if (firstLine)
-                                {
-                                    var equalsMatch = Regex.Match(optionLine, @"(Options\s*=\s*)(.*)");
-                                    if (equalsMatch.Success)
+                                    if (currentLine.Trim().StartsWith("Value"))
                                     {
-                                        string prefix = equalsMatch.Groups[1].Value;
-                                        string remainder = equalsMatch.Groups[2].Value;
-                                        lines.Add($"{prefix}{(isMatch ? "*" : "")}{remainder}");
+                                        string updatedLine = Regex.Replace(currentLine,
+                                            @"(Value\s*=\s*)(<)?(\d+)(>)?",
+                                            m => {
+                                                string prefix = m.Groups[2].Success ? "<" : "";
+                                                string suffix = m.Groups[4].Success ? ">" : "";
+                                                return $"{m.Groups[1].Value}{prefix}{updateData.Value}{suffix}";
+                                            });
+
+                                        lines.Add(updatedLine);
+                                        break;
                                     }
                                     else
                                     {
-                                        lines.Add(optionLine);
+                                        lines.Add(currentLine);
                                     }
-                                    firstLine = false;
-                                }
-                                else
-                                {
-                                    string indent = Regex.Match(optionLine, @"^\s*").Value;
-                                    string content = optionLine.TrimStart();
-                                    lines.Add($"{indent}{(isMatch ? "*" : "")}{content}");
                                 }
                             }
-                            i--;
+
+                            if (updateData.Option != null)
+                            {
+                                i = originalIndex;
+                                while (i + 1 < nvramLines.Length && !nvramLines[i + 1].StartsWith("Options"))
+                                {
+                                    i++;
+                                    lines.Add(nvramLines[i]);
+                                }
+                                i++;
+
+                                string optionsLine = nvramLines[i];
+                                i++;
+
+                                var optionsSection = new List<string>();
+                                optionsSection.Add(optionsLine.Replace("*", "").TrimEnd());
+
+                                while (i < nvramLines.Length && !string.IsNullOrWhiteSpace(nvramLines[i]))
+                                {
+                                    if (!nvramLines[i].StartsWith("//"))
+                                    {
+                                        optionsSection.Add(nvramLines[i].Replace("*", "").TrimEnd());
+                                    }
+                                    i++;
+                                }
+
+                                bool firstLine = true;
+                                foreach (string optionLine in optionsSection)
+                                {
+                                    bool isMatch = false;
+                                    if (updateData.IsOptionIndex)
+                                    {
+                                        isMatch = Regex.IsMatch(optionLine, @"\[" + Regex.Escape(updateData.Option) + @"\]");
+                                    }
+                                    else
+                                    {
+                                        isMatch = Regex.IsMatch(optionLine, @"\[\d+\]\s*" + Regex.Escape(updateData.Option));
+                                    }
+
+                                    if (firstLine)
+                                    {
+                                        var equalsMatch = Regex.Match(optionLine, @"(Options\s*=\s*)(.*)");
+                                        if (equalsMatch.Success)
+                                        {
+                                            string prefix = equalsMatch.Groups[1].Value;
+                                            string remainder = equalsMatch.Groups[2].Value;
+                                            lines.Add($"{prefix}{(isMatch ? "*" : "")}{remainder}");
+                                        }
+                                        else
+                                        {
+                                            lines.Add(optionLine);
+                                        }
+                                        firstLine = false;
+                                    }
+                                    else
+                                    {
+                                        string indent = Regex.Match(optionLine, @"^\s*").Value;
+                                        string content = optionLine.TrimStart();
+                                        lines.Add($"{indent}{(isMatch ? "*" : "")}{content}");
+                                    }
+                                }
+                                i--;
+                            }
                         }
                     }
                 }
