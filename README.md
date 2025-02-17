@@ -1,5 +1,5 @@
 # AutoSCEWIN
-Tool to automate SCEWIN
+Tool to automate [SCEWIN](https://github.com/ab3lkaizen/SCEHUB)
 
 ## Usage
 Parses `input.txt`, must be formatted as the following:
