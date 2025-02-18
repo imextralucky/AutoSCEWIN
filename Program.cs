@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 
 class NvramModifier
 {
@@ -12,9 +12,13 @@ class NvramModifier
     private static Dictionary<string, List<InputData>> ParseInputFile(string inputPath)
     {
         var updates = new Dictionary<string, List<InputData>>();
+        int lineNumber = 0;
 
         foreach (var line in File.ReadAllLines(inputPath))
         {
+            lineNumber++;
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
             string[]? parts = null;
             if (line.Contains("|"))
                 parts = line.Split('|');
@@ -47,21 +51,36 @@ class NvramModifier
 
                 updates[question].Add(inputData);
             }
+            else
+            {
+                Console.WriteLine($"Warning: Invalid format in input.txt at line {lineNumber}: '{line}'");
+            }
         }
         return updates;
     }
 
     private static void ModifyNvram(string inputPath, string nvramPath)
     {
-        if (!File.Exists(nvramPath) || !File.Exists(inputPath))
+        if (!File.Exists(nvramPath))
         {
-            Console.WriteLine("Error: One or both files are missing.");
+            Console.WriteLine("Error: nvram.txt file not found.");
+            return;
+        }
+        if (!File.Exists(inputPath))
+        {
+            Console.WriteLine("Error: input.txt file not found.");
             return;
         }
 
         var updates = ParseInputFile(inputPath);
         var lines = new List<string>();
         var nvramLines = File.ReadAllLines(nvramPath);
+        var processedQuestions = new HashSet<string>();
+        var foundQuestions = new HashSet<string>();
+        var modifiedQuestions = new HashSet<string>();
+
+        Console.WriteLine("\nProcessing NVRAM modifications...");
+        Console.WriteLine("=================================");
 
         for (int i = 0; i < nvramLines.Length; i++)
         {
@@ -77,7 +96,9 @@ class NvramModifier
 
                     if (updates.ContainsKey(setupQuestion))
                     {
+                        foundQuestions.Add(setupQuestion);
                         var questionUpdates = new Queue<InputData>(updates[setupQuestion]);
+                        Console.WriteLine($"\nModifying Setup Question: {setupQuestion}");
 
                         while (questionUpdates.Count > 0)
                         {
@@ -93,6 +114,7 @@ class NvramModifier
 
                                     if (currentLine.Trim().StartsWith("Value"))
                                     {
+                                        string oldValue = Regex.Match(currentLine, @"Value\s*=\s*<?(\d+)>?").Groups[1].Value;
                                         string updatedLine = Regex.Replace(currentLine,
                                             @"(Value\s*=\s*)(<)?(\d+)(>)?",
                                             m => {
@@ -101,6 +123,8 @@ class NvramModifier
                                                 return $"{m.Groups[1].Value}{prefix}{updateData.Value}{suffix}";
                                             });
 
+                                        Console.WriteLine($"  - Updated value from {oldValue} to {updateData.Value}");
+                                        modifiedQuestions.Add(setupQuestion);
                                         lines.Add(updatedLine);
                                         break;
                                     }
@@ -121,57 +145,73 @@ class NvramModifier
                                 }
                                 i++;
 
-                                string optionsLine = nvramLines[i];
-                                i++;
-
-                                var optionsSection = new List<string>();
-                                optionsSection.Add(optionsLine.Replace("*", "").TrimEnd());
-
-                                while (i < nvramLines.Length && !string.IsNullOrWhiteSpace(nvramLines[i]))
+                                if (i < nvramLines.Length)
                                 {
-                                    if (!nvramLines[i].StartsWith("//"))
-                                    {
-                                        optionsSection.Add(nvramLines[i].Replace("*", "").TrimEnd());
-                                    }
+                                    string optionsLine = nvramLines[i];
                                     i++;
-                                }
 
-                                bool firstLine = true;
-                                foreach (string optionLine in optionsSection)
-                                {
-                                    bool isMatch = false;
-                                    if (updateData.IsOptionIndex)
-                                    {
-                                        isMatch = Regex.IsMatch(optionLine, @"\[" + Regex.Escape(updateData.Option) + @"\]");
-                                    }
-                                    else
-                                    {
-                                        isMatch = Regex.IsMatch(optionLine, @"\[\d+\]\s*" + Regex.Escape(updateData.Option));
-                                    }
+                                    var optionsSection = new List<string>();
+                                    optionsSection.Add(optionsLine.Replace("*", "").TrimEnd());
 
-                                    if (firstLine)
+                                    while (i < nvramLines.Length && !string.IsNullOrWhiteSpace(nvramLines[i]))
                                     {
-                                        var equalsMatch = Regex.Match(optionLine, @"(Options\s*=\s*)(.*)");
-                                        if (equalsMatch.Success)
+                                        if (!nvramLines[i].StartsWith("//"))
                                         {
-                                            string prefix = equalsMatch.Groups[1].Value;
-                                            string remainder = equalsMatch.Groups[2].Value;
-                                            lines.Add($"{prefix}{(isMatch ? "*" : "")}{remainder}");
+                                            optionsSection.Add(nvramLines[i].Replace("*", "").TrimEnd());
+                                        }
+                                        i++;
+                                    }
+
+                                    bool optionFound = false;
+                                    bool firstLine = true;
+                                    foreach (string optionLine in optionsSection)
+                                    {
+                                        bool isMatch = false;
+                                        if (updateData.IsOptionIndex)
+                                        {
+                                            isMatch = Regex.IsMatch(optionLine, @"\[" + Regex.Escape(updateData.Option) + @"\]");
                                         }
                                         else
                                         {
-                                            lines.Add(optionLine);
+                                            isMatch = Regex.IsMatch(optionLine, @"\[\d+\]\s*" + Regex.Escape(updateData.Option));
                                         }
-                                        firstLine = false;
+
+                                        if (isMatch) optionFound = true;
+
+                                        if (firstLine)
+                                        {
+                                            var equalsMatch = Regex.Match(optionLine, @"(Options\s*=\s*)(.*)");
+                                            if (equalsMatch.Success)
+                                            {
+                                                string prefix = equalsMatch.Groups[1].Value;
+                                                string remainder = equalsMatch.Groups[2].Value;
+                                                lines.Add($"{prefix}{(isMatch ? "*" : "")}{remainder}");
+                                            }
+                                            else
+                                            {
+                                                lines.Add(optionLine);
+                                            }
+                                            firstLine = false;
+                                        }
+                                        else
+                                        {
+                                            string indent = Regex.Match(optionLine, @"^\s*").Value;
+                                            string content = optionLine.TrimStart();
+                                            lines.Add($"{indent}{(isMatch ? "*" : "")}{content}");
+                                        }
+                                    }
+
+                                    if (!optionFound)
+                                    {
+                                        Console.WriteLine($"  - Warning: Option '{updateData.Option}' not found in options list");
                                     }
                                     else
                                     {
-                                        string indent = Regex.Match(optionLine, @"^\s*").Value;
-                                        string content = optionLine.TrimStart();
-                                        lines.Add($"{indent}{(isMatch ? "*" : "")}{content}");
+                                        Console.WriteLine($"  - Selected option: {updateData.Option}");
+                                        modifiedQuestions.Add(setupQuestion);
                                     }
+                                    i--;
                                 }
-                                i--;
                             }
                         }
                     }
@@ -183,8 +223,19 @@ class NvramModifier
             }
         }
 
+        var missingQuestions = updates.Keys.Except(foundQuestions);
+        if (missingQuestions.Any())
+        {
+            Console.WriteLine("\nSetup Questions not found in nvram.txt:");
+            foreach (var question in missingQuestions)
+            {
+                Console.WriteLine($"  - {question}");
+            }
+        }
+
         File.WriteAllLines(nvramPath, lines);
-        Console.WriteLine("nvram.txt successfully updated.");
+        Console.WriteLine("\nNVRAM update completed successfully.");
+        Console.WriteLine($"Found {foundQuestions.Count} questions ({modifiedQuestions.Count} modified), {missingQuestions.Count()} questions not found.");
     }
 
     public static void Main()
