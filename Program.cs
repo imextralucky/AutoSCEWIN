@@ -164,6 +164,8 @@ class NvramModifier
 
                                     bool optionFound = false;
                                     bool firstLine = true;
+                                    string targetOption = updateData.Option;
+
                                     foreach (string optionLine in optionsSection)
                                     {
                                         bool isMatch = false;
@@ -173,10 +175,13 @@ class NvramModifier
                                         }
                                         else
                                         {
-                                            isMatch = Regex.IsMatch(optionLine, @"\[\d+\]\s*" + Regex.Escape(updateData.Option));
+                                            isMatch = optionLine.TrimStart().EndsWith(targetOption, StringComparison.OrdinalIgnoreCase);
                                         }
 
-                                        if (isMatch) optionFound = true;
+                                        if (isMatch)
+                                        {
+                                            optionFound = true;
+                                        }
 
                                         if (firstLine)
                                         {
