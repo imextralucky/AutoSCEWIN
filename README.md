@@ -1,6 +1,8 @@
 # AutoSCEWIN
 Tool to automate [SCEWIN](https://github.com/ab3lkaizen/SCEHUB)
 
+![Example](example.png)
+
 ## Usage
 Parses `input.txt`, must be formatted as the following:
 
