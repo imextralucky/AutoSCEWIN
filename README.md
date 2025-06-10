@@ -14,6 +14,8 @@ Option can be either numerical value or text
 
 Place `AutoSCEWIN.exe` in the same directory as `input.txt` and `nvram.txt`
 
+Run with `--ignore-case` for `input.txt` to be parsed as case-insensitive
+
 Supports modifying the following:
 
 ```
