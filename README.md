@@ -31,5 +31,5 @@ Value	=<0>
 Value	=0
 ```
 
-## Compile
-`dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true`
+## Build
+`g++ -std=c++17 -O2 -static -o AutoSCEWIN.exe AutoSCEWIN.cpp`
